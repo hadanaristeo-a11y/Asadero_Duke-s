@@ -1,3 +1,4 @@
+
 import { useState, type FormEvent } from "react";
 
 import {
@@ -11,7 +12,7 @@ import {
 
 import { Link, useNavigate, useParams } from "react-router-dom";
 
-import { useAuth, type Role } from "../../context/AuthContext";
+type Role = "admin" | "mesero" | "cocina";
 
 const roleInfo: Record<
   Role,
@@ -43,39 +44,19 @@ export default function Login() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
-  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const { login } = useAuth();
   const navigate = useNavigate();
 
-  // INICIAR SESIÓN
-  const submit = async (e: FormEvent<HTMLFormElement>) => {
+  // INICIAR SESIÓN SIN CONEXIÓN AL BACKEND
+  const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
-    if (!username.trim() || !password.trim()) {
-      setError("Ingresa tu correo electrónico y contraseña.");
-      return;
-    }
-
-    setError("");
     setLoading(true);
 
-    try {
-      // Validar credenciales con el backend y MySQL
-      await login(role, username, password);
-
-      // Redirigir según el rol
+    setTimeout(() => {
       navigate(info.home, { replace: true });
-    } catch (error) {
-      setError(
-        error instanceof Error
-          ? error.message
-          : "No fue posible iniciar sesión.",
-      );
-    } finally {
-      setLoading(false);
-    }
+    }, 300);
   };
 
   return (
@@ -90,7 +71,6 @@ export default function Login() {
           className="absolute inset-0 h-full w-full object-cover"
         />
 
-        {/* OSCURECER IMAGEN */}
         <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/30 to-black/90" />
 
         {/* MARCA */}
@@ -179,7 +159,7 @@ export default function Login() {
             </h2>
 
             <p className="mt-4 text-lg leading-7 text-slate-500">
-              Inicia sesión para acceder al sistema.
+              Ingresa tus datos para acceder al sistema.
             </p>
 
             <div className="mt-6 flex items-center gap-3">
@@ -194,13 +174,13 @@ export default function Login() {
           {/* FORMULARIO */}
           <form onSubmit={submit} className="space-y-7">
 
-            {/* CORREO ELECTRÓNICO */}
+            {/* NOMBRE O USUARIO */}
             <div>
               <label
                 htmlFor="username"
                 className="mb-3 block text-base font-semibold text-slate-700"
               >
-                Correo electrónico
+                Nombre de usuario
               </label>
 
               <div className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-5 transition focus-within:border-red-500 focus-within:bg-white focus-within:ring-4 focus-within:ring-red-100">
@@ -212,16 +192,12 @@ export default function Login() {
 
                 <input
                   id="username"
-                  type="email"
+                  type="text"
                   value={username}
-                  onChange={(e) => {
-                    setUsername(e.target.value);
-                    setError("");
-                  }}
+                  onChange={(e) => setUsername(e.target.value)}
                   className="w-full bg-transparent text-base text-slate-900 outline-none placeholder:text-slate-400"
-                  placeholder="Ingresa tu correo electrónico"
+                  placeholder="Ingresa tu nombre"
                   autoComplete="username"
-                  required
                 />
               </div>
             </div>
@@ -246,14 +222,10 @@ export default function Login() {
                   id="password"
                   type={show ? "text" : "password"}
                   value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    setError("");
-                  }}
+                  onChange={(e) => setPassword(e.target.value)}
                   className="w-full bg-transparent text-base text-slate-900 outline-none placeholder:text-slate-400"
                   placeholder="Ingresa tu contraseña"
                   autoComplete="current-password"
-                  required
                 />
 
                 <button
@@ -273,23 +245,13 @@ export default function Login() {
               </div>
             </div>
 
-            {/* ERROR */}
-            {error && (
-              <p
-                role="alert"
-                className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-              >
-                {error}
-              </p>
-            )}
-
             {/* BOTÓN */}
             <button
               type="submit"
               disabled={loading}
               className={`w-full rounded-2xl py-5 text-lg font-bold text-white shadow-lg transition duration-200 hover:-translate-y-0.5 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-60 ${info.color}`}
             >
-              {loading ? "Verificando..." : "Iniciar sesión"}
+              {loading ? "Ingresando..." : "Iniciar sesión"}
             </button>
 
           </form>

@@ -1,64 +1,67 @@
 import { Request, Response } from "express";
-import { pool } from "../config/database";
+import { conectarDB } from "../config/database";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { RowDataPacket } from "mysql2";
 
-interface Usuario extends RowDataPacket {
-    id_usuario: number;
-    nombre: string;
-    correo: string;
-    password: string;
-    rol: string;
-    estado: string;
-}
+// ============================================
+// LOGIN
+// ============================================
 
-export const iniciarSesion = async (
-    req: Request,
-    res: Response
-) => {
+export const login = async (req: Request, res: Response) => {
     try {
-        const { correo, password, rol } = req.body;
+        const { correo, password } = req.body;
 
-        if (!correo || !password || !rol) {
+        // 1. Validar campos
+        if (
+            typeof correo !== "string" ||
+            typeof password !== "string" ||
+            !correo.trim() ||
+            !password.trim()
+        ) {
             return res.status(400).json({
-                mensaje: "Completa todos los campos."
+                mensaje: "Ingresa tu correo y contraseña"
             });
         }
 
-        const [usuarios] = await pool.execute<Usuario[]>(
-            `SELECT id_usuario, nombre, correo, password, rol, estado
-             FROM usuarios
-             WHERE correo = ?`,
-            [correo.trim()]
-        );
+        // 2. Validar configuración JWT
+        const jwtSecret = process.env.JWT_SECRET;
 
-        if (usuarios.length === 0) {
+        if (!jwtSecret) {
+            console.error("JWT_SECRET no está configurado");
+
+            return res.status(500).json({
+                mensaje: "Error de configuración del servidor"
+            });
+        }
+
+        // 3. Conectar con SQL Server
+        const pool = await conectarDB();
+
+        // 4. Buscar usuario
+        const resultado = await pool.request()
+            .input("correo", correo.trim())
+            .query(`
+                SELECT
+                    id_usuario,
+                    nombre,
+                    correo,
+                    password,
+                    estado,
+                    rol
+                FROM dbo.usuarios
+                WHERE correo = @correo
+            `);
+
+        // 5. Comprobar existencia
+        if (resultado.recordset.length === 0) {
             return res.status(401).json({
-                mensaje: "Correo o contraseña incorrectos."
+                mensaje: "Usuario o contraseña incorrectos"
             });
         }
 
-        const usuario = usuarios[0];
+        const usuario = resultado.recordset[0];
 
-        if (usuario.estado !== "Activo") {
-            return res.status(403).json({
-                mensaje: "Tu cuenta se encuentra inactiva."
-            });
-        }
-
-        const rolesPermitidos: Record<string, string> = {
-            admin: "Administrador",
-            mesero: "Mesero",
-            cocina: "Cocina"
-        };
-
-        if (usuario.rol !== rolesPermitidos[rol]) {
-            return res.status(403).json({
-                mensaje: "No tienes permisos para este acceso."
-            });
-        }
-
+        // 6. Verificar contraseña
         const passwordCorrecta = await bcrypt.compare(
             password,
             usuario.password
@@ -66,44 +69,62 @@ export const iniciarSesion = async (
 
         if (!passwordCorrecta) {
             return res.status(401).json({
-                mensaje: "Correo o contraseña incorrectos."
+                mensaje: "Usuario o contraseña incorrectos"
             });
         }
 
-        const secret = process.env.JWT_SECRET;
-
-        if (!secret) {
-            throw new Error("No está configurado JWT_SECRET.");
+        // 7. Verificar estado
+        if (
+            String(usuario.estado).toLowerCase() !== "activo"
+        ) {
+            return res.status(403).json({
+                mensaje: "El usuario se encuentra inactivo"
+            });
         }
 
+        // 8. Verificar rol
+        const rolesPermitidos = ["admin", "mesero", "cocina"];
+
+        const rol = String(usuario.rol).toLowerCase();
+
+        if (!rolesPermitidos.includes(rol)) {
+            return res.status(403).json({
+                mensaje: "El usuario no tiene un rol válido"
+            });
+        }
+
+        // 9. Generar token JWT
         const token = jwt.sign(
             {
                 id: usuario.id_usuario,
                 correo: usuario.correo,
                 rol: rol
             },
-            secret,
+            jwtSecret,
             {
                 expiresIn: "8h"
             }
         );
 
-        return res.json({
-            mensaje: "Inicio de sesión exitoso.",
+        // 10. Respuesta al frontend
+        return res.status(200).json({
+            mensaje: "Inicio de sesión exitoso",
+
             token,
+
             usuario: {
                 id: usuario.id_usuario,
                 nombre: usuario.nombre,
                 correo: usuario.correo,
-                role: rol
+                rol: rol
             }
         });
 
     } catch (error) {
-        console.error("Error al iniciar sesión:", error);
+        console.error("Error en login:", error);
 
         return res.status(500).json({
-            mensaje: "Error interno al iniciar sesión."
+            mensaje: "Error interno del servidor"
         });
     }
 };

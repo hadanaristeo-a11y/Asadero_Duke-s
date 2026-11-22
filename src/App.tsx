@@ -1,5 +1,5 @@
+
 import { Navigate, Route, Routes } from "react-router-dom";
-import { useAuth, type Role } from "./context/AuthContext";
 import { AppShell } from "./components/layout/AppShell";
 import Access from "./pages/auth/Access";
 import Login from "./pages/auth/Login";
@@ -26,26 +26,9 @@ import {
   KitchenOrdersPage,
 } from "./pages/cocina/KitchenPages";
 
-function Protected({
-  role,
-  children,
-}: {
-  role: Role;
-  children: React.ReactNode;
-}) {
-  const { user } = useAuth();
+type Role = "admin" | "mesero" | "cocina";
 
-  if (!user) {
-    return <Navigate to={`/login/${role}`} replace />;
-  }
-
-  if (user.role !== role) {
-    return <Navigate to={`/${user.role}`} replace />;
-  }
-
-  return <>{children}</>;
-}
-
+// Las páginas ya no necesitan autenticación.
 function Page({
   role,
   children,
@@ -53,11 +36,7 @@ function Page({
   role: Role;
   children: React.ReactNode;
 }) {
-  return (
-    <Protected role={role}>
-      <AppShell role={role}>{children}</AppShell>
-    </Protected>
-  );
+  return <AppShell role={role}>{children}</AppShell>;
 }
 
 function Placeholder({ title }: { title: string }) {
