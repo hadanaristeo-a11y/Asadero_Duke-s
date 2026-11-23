@@ -2,7 +2,6 @@ import { useState } from "react";
 import {
   Plus,
   Download,
-  Trash2,
   Users,
   Package,
   ShoppingBag,
@@ -19,26 +18,22 @@ import {
 } from "../../components/ui/Primitives";
 
 import {
-  initialOrders,
-  initialUsers,
   money,
-  products as seedProducts,
   type Product,
-  type Order,
 } from "../../data/demo";
+import { getProducts, createProduct, updateProduct, getCategories, createCategory, updateCategory, type ProductRecord } from "../../api/productos.api";
+import { createUser, getUsers, updateUserState } from "../../api/users.api";
+import { getOrders, type OrderRecord } from "../../api/order.api";
+import { closeCashCut, getCurrentCashCut, openCashCut } from "../../api/cashCuts.api";
+import { useApiResource } from "../../hooks/useApiResource";
+import { apiMessage } from "../../api/client";
 
 export function AdminDashboard() {
-  const orders = JSON.parse(
-    localStorage.getItem("dukes-orders") || "null",
-  ) as Order[] | null;
-
-  const current = orders || initialOrders;
-
-  const total = current.reduce(
-    (sum, o) =>
-      sum + o.items.reduce((s, i) => s + i.qty * i.price, 0),
-    0,
-  );
+  const { data: current, error: ordersError } = useApiResource(getOrders, [] as OrderRecord[]);
+  const { data: users, error: usersError } = useApiResource(getUsers, []);
+  const { data: products, error: productsError } = useApiResource(getProducts, []);
+  const errors = [ordersError, usersError, productsError].filter(Boolean);
+  const total = current.filter(o => o.status === "Pagado").reduce((sum, o) => sum + o.total, 0);
 
   const stats = [
     {
@@ -55,13 +50,13 @@ export function AdminDashboard() {
     },
     {
       label: "Usuarios activos",
-      value: "12",
+      value: String(users.filter(user => user.active).length),
       icon: Users,
       color: "bg-emerald-100 text-emerald-700",
     },
     {
       label: "Productos activos",
-      value: String(seedProducts.filter((p) => p.active).length),
+      value: String(products.filter((p) => p.active).length),
       icon: Package,
       color: "bg-violet-100 text-violet-700",
     },
@@ -73,6 +68,8 @@ export function AdminDashboard() {
         title="Resumen general"
         subtitle="Bienvenido al panel de control de Asadero Duke's."
       />
+
+      {errors.length > 0 && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">No se pudieron cargar todos los datos del servidor: {errors.join(" · ")}</p>}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {stats.map((s) => {
@@ -96,7 +93,7 @@ export function AdminDashboard() {
 
               <div className="mt-2 flex items-center gap-1 text-xs text-emerald-700">
                 <TrendingUp size={13} />
-                Datos de demostración
+                Datos conectados al servidor
               </div>
             </Card>
           );
@@ -131,7 +128,7 @@ export function AdminDashboard() {
                       #{o.id}
                     </td>
 
-                    <td>Para llevar</td>
+                    <td>{o.tipoPedido}</td>
 
                     <td>{o.waiter}</td>
 
@@ -140,12 +137,7 @@ export function AdminDashboard() {
                     </td>
 
                     <td className="text-right">
-                      {money(
-                        o.items.reduce(
-                          (s, i) => s + i.qty * i.price,
-                          0,
-                        ),
-                      )}
+                      {money(o.total)}
                     </td>
                   </tr>
                 ))}
@@ -203,50 +195,32 @@ export function AdminDashboard() {
 }
 
 export function ProductsPage() {
-  const [items, setItems] = useState<Product[]>(
-    () =>
-      JSON.parse(localStorage.getItem("dukes-products") || "null") ||
-      seedProducts,
-  );
+  const { data: remoteProducts, setData: setRemoteProducts, loading, error, reload } = useApiResource(getProducts, [] as ProductRecord[]);
+  const { data: categories } = useApiResource(getCategories, []);
+  const items: Product[] = remoteProducts.map(p => ({ id:p.id,name:p.name,category:p.category,price:Number(p.price),image:p.imageUrl || "https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=700&q=80",active:p.active }));
 
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
   const [price, setPrice] = useState("100");
-  const [category, setCategory] = useState("Carnes");
+  const [categoryId, setCategoryId] = useState(0);
   const [notice, setNotice] = useState("");
 
-  const save = () => {
-    if (!name.trim() || Number(price) <= 0) return;
-
-    const next = [
-      ...items,
-      {
-        id: Date.now(),
-        name: name.trim(),
-        category,
-        price: Number(price),
-        image:
-          "https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=700&q=80",
-        active: true,
-      },
-    ];
-
-    setItems(next);
-    localStorage.setItem("dukes-products", JSON.stringify(next));
-
-    setName("");
-    setShowForm(false);
-    setNotice("Producto agregado correctamente.");
+  const save = async () => {
+    if (!name.trim() || Number(price) < 0 || !(categoryId || categories[0]?.id)) return;
+    try {
+      await createProduct({ name:name.trim(), price:Number(price), categoryId:categoryId || categories[0].id, active:true });
+      reload(); setName(""); setShowForm(false); setNotice("Producto agregado correctamente.");
+    } catch (error) { setNotice(apiMessage(error)); }
   };
 
-  const toggle = (id: number) => {
-    const next = items.map((p) =>
-      p.id === id ? { ...p, active: !p.active } : p,
-    );
-
-    setItems(next);
-    localStorage.setItem("dukes-products", JSON.stringify(next));
+  const toggle = async (id: number) => {
+    const product = remoteProducts.find(p => p.id === id);
+    if (!product) return;
+    try {
+      await updateProduct(id, { name:product.name, description:product.description, imageUrl:product.imageUrl, price:Number(product.price), categoryId:product.categoryId, active:!product.active });
+      setRemoteProducts(old => old.map(p => p.id === id ? {...p,active:!p.active} : p));
+    } catch (error) { setNotice(apiMessage(error)); }
   };
 
   const filtered = items.filter((p) =>
@@ -303,18 +277,10 @@ export function ProductsPage() {
             <select
               id="product-category"
               className="rounded-lg border p-3 text-sm"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
+              value={categoryId || categories[0]?.id || ""}
+              onChange={(e) => setCategoryId(Number(e.target.value))}
             >
-              {[
-                "Carnes",
-                "Hamburguesas",
-                "Tacos",
-                "Acompañamientos",
-                "Bebidas",
-              ].map((c) => (
-                <option key={c}>{c}</option>
-              ))}
+              {categories.filter(c => c.active).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
 
             <Button onClick={save}>Guardar producto</Button>
@@ -334,6 +300,8 @@ export function ProductsPage() {
         </span>
       </div>
 
+      {error && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+      {loading && <p className="mb-4 text-sm text-slate-500">Cargando productos...</p>}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {filtered.map((p) => (
           <Card key={p.id} className="overflow-hidden">
@@ -377,30 +345,14 @@ export function ProductsPage() {
 }
 
 export function CategoriesPage() {
-  const [cats, setCats] = useState(
-    () =>
-      (JSON.parse(localStorage.getItem("dukes-categories") || "null") as
-        | string[]
-        | null) || [
-        "Carnes",
-        "Hamburguesas",
-        "Tacos",
-        "Acompañamientos",
-        "Bebidas",
-        "Postres",
-      ],
-  );
+  const { data: cats, reload, error } = useApiResource(getCategories, []);
 
   const [value, setValue] = useState("");
 
-  const add = () => {
-    if (value.trim() && !cats.includes(value.trim())) {
-      const next = [...cats, value.trim()];
-
-      setCats(next);
-      localStorage.setItem("dukes-categories", JSON.stringify(next));
-      setValue("");
-    }
+  const add = async () => {
+    if (!value.trim() || cats.some(category => category.name.toLowerCase() === value.trim().toLowerCase())) return;
+    try { await createCategory(value.trim()); setValue(""); reload(); }
+    catch (error) { window.alert(apiMessage(error)); }
   };
 
   return (
@@ -411,6 +363,7 @@ export function CategoriesPage() {
       />
 
       <Card className="p-5">
+        {error && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
         <div className="mb-5 flex flex-wrap gap-3">
           <label htmlFor="new-category" className="sr-only">Nueva categoría</label>
           <input
@@ -430,30 +383,21 @@ export function CategoriesPage() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {cats.map((c) => (
             <div
-              key={c}
+              key={c.id}
               className="flex items-center justify-between rounded-xl border p-4"
             >
               <div>
-                <p className="font-semibold">{c}</p>
+                <p className="font-semibold">{c.name}</p>
                 <p className="mt-1 text-xs text-slate-500">
-                  Categoría de catálogo
+                  {c.active ? "Activa" : "Inactiva"}
                 </p>
               </div>
 
               <Button
                 variant="danger"
-                onClick={() => {
-                  const next = cats.filter((x) => x !== c);
-
-                  setCats(next);
-                  localStorage.setItem(
-                    "dukes-categories",
-                    JSON.stringify(next),
-                  );
-                }}
+                onClick={async () => { try { await updateCategory(c.id, !c.active); reload(); } catch (error) { window.alert(apiMessage(error)); } }}
               >
-                <Trash2 size={15} />
-                Eliminar
+                {c.active ? "Desactivar" : "Activar"}
               </Button>
             </div>
           ))}
@@ -464,38 +408,20 @@ export function CategoriesPage() {
 }
 
 export function UsersPage() {
-  const [users, setUsers] = useState(
-    () =>
-      JSON.parse(localStorage.getItem("dukes-users") || "null") ||
-      initialUsers,
-  );
+  const { data: users, reload, error } = useApiResource(getUsers, []);
 
   const [search, setSearch] = useState("");
   const [show, setShow] = useState(false);
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [role, setRole] = useState("Mesero");
 
-  const add = () => {
-    if (!name.trim() || !username.trim()) return;
-
-    const next = [
-      ...users,
-      {
-        id: Date.now(),
-        name,
-        username,
-        role,
-        status: "Activo",
-      },
-    ];
-
-    setUsers(next);
-    localStorage.setItem("dukes-users", JSON.stringify(next));
-
-    setName("");
-    setUsername("");
-    setShow(false);
+  const add = async () => {
+    if (!name.trim() || !username.trim() || password.length < 8) return;
+    const roleMap: Record<string,"admin"|"mesero"|"cocina"> = { Administrador:"admin", Mesero:"mesero", Cocina:"cocina" };
+    try { await createUser({ name:name.trim(), username:username.trim(), password, role:roleMap[role] }); setName(""); setUsername(""); setPassword(""); setShow(false); reload(); }
+    catch (error) { window.alert(apiMessage(error)); }
   };
 
   const filtered = users.filter(
@@ -518,6 +444,8 @@ export function UsersPage() {
         }
       />
 
+      {error && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+
       {show && (
         <Card className="mb-5 p-5">
           <div className="grid gap-3 md:grid-cols-4">
@@ -538,6 +466,9 @@ export function UsersPage() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
             />
+
+            <label htmlFor="user-password" className="sr-only">Contraseña inicial</label>
+            <input id="user-password" type="password" minLength={8} autoComplete="new-password" className="rounded-lg border p-3" placeholder="Contraseña inicial" value={password} onChange={e => setPassword(e.target.value)} />
 
             <label htmlFor="user-role" className="sr-only">Rol</label>
             <select
@@ -585,7 +516,7 @@ export function UsersPage() {
                 name: string;
                 username: string;
                 role: string;
-                status: string;
+                active: boolean;
               }) => (
                 <tr key={u.id} className="border-t">
                   <td className="px-5 py-4 font-semibold">
@@ -593,29 +524,18 @@ export function UsersPage() {
                   </td>
 
                   <td className="px-5 py-4">{u.username}</td>
-                  <td className="px-5 py-4">{u.role}</td>
+                  <td className="px-5 py-4">{{admin:"Administrador",mesero:"Mesero",cocina:"Cocina",cajero:"Cajero"}[u.role] || u.role}</td>
 
                   <td className="px-5 py-4">
-                    <StatusBadge status={u.status} />
+                    <StatusBadge status={u.active ? "Activo" : "Inactivo"} />
                   </td>
 
                   <td className="px-5 py-4">
                     <Button
-                      variant="danger"
-                      onClick={() => {
-                        const next = users.filter(
-                          (x: { id: number }) => x.id !== u.id,
-                        );
-
-                        setUsers(next);
-                        localStorage.setItem(
-                          "dukes-users",
-                          JSON.stringify(next),
-                        );
-                      }}
+                      variant={u.active ? "danger" : "success"}
+                      onClick={async () => { try { await updateUserState(u.id, !u.active); reload(); } catch (error) { window.alert(apiMessage(error)); } }}
                     >
-                      <Trash2 size={15} />
-                      Eliminar
+                      {u.active ? "Desactivar" : "Activar"}
                     </Button>
                   </td>
                 </tr>
@@ -629,11 +549,7 @@ export function UsersPage() {
 }
 
 export function OrdersAdminPage() {
-  const [orders] = useState<Order[]>(
-    () =>
-      JSON.parse(localStorage.getItem("dukes-orders") || "null") ||
-      initialOrders,
-  );
+  const { data: orders, error } = useApiResource(getOrders, [] as OrderRecord[]);
 
   const [search, setSearch] = useState("");
 
@@ -650,6 +566,7 @@ export function OrdersAdminPage() {
         subtitle="Consulta los pedidos para llevar y su estado."
       />
 
+      {error && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
       <div className="mb-4">
         <SearchBox
           value={search}
@@ -685,7 +602,7 @@ export function OrdersAdminPage() {
                   #{o.id}
                 </td>
 
-                <td className="px-4 py-4">Para llevar</td>
+                <td className="px-4 py-4">{o.tipoPedido}{o.numeroMesa ? ` · Mesa ${o.numeroMesa}` : ""}</td>
 
                 <td className="px-4 py-4">{o.waiter}</td>
 
@@ -700,12 +617,7 @@ export function OrdersAdminPage() {
                 </td>
 
                 <td className="px-4 py-4">
-                  {money(
-                    o.items.reduce(
-                      (s, i) => s + i.qty * i.price,
-                      0,
-                    ),
-                  )}
+                  {money(o.total)}
                 </td>
               </tr>
             ))}
@@ -717,119 +629,85 @@ export function OrdersAdminPage() {
 }
 
 export function CashCutPage() {
-  const [orders] = useState<Order[]>(
-    () =>
-      JSON.parse(localStorage.getItem("dukes-orders") || "null") ||
-      initialOrders,
-  );
+  const { data: orders, error: ordersError } = useApiResource(getOrders, [] as OrderRecord[])
+  const { data: cut, error: cutError, loading, reload } = useApiResource(getCurrentCashCut, null)
+  const [opening, setOpening] = useState('500')
+  const [counted, setCounted] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState('')
+  const paid = orders.filter(order => order.status === 'Pagado')
+  const pending = orders.filter(order => order.status !== 'Pagado' && order.status !== 'Entregado')
 
-  const [opening, setOpening] = useState("500");
+  const startCut = async () => {
+    const amount = Number(opening)
+    if (!Number.isFinite(amount) || amount < 0) { setNotice('El fondo inicial debe ser un monto v?lido.'); return }
+    setBusy(true); setNotice('')
+    try { await openCashCut(amount); reload(); setNotice('Corte de caja abierto y guardado.') }
+    catch (error) { setNotice(apiMessage(error)) }
+    finally { setBusy(false) }
+  }
 
-  const paid = orders.filter(
-    (o) => o.status === "Pagado" || o.paid,
-  );
-
-  const total = paid.reduce(
-    (s, o) =>
-      s + o.items.reduce((t, i) => t + i.qty * i.price, 0),
-    0,
-  );
-
-  const pending = orders.filter(
-    (o) => o.status !== "Pagado" && o.status !== "Entregado",
-  );
+  const finishCut = async () => {
+    const amount = Number(counted)
+    if (!cut || !Number.isFinite(amount) || amount < 0) { setNotice('Ingresa el efectivo contado para cerrar el corte.'); return }
+    setBusy(true); setNotice('')
+    try { await closeCashCut(cut.id, amount); setCounted(''); reload(); setNotice('Corte cerrado y registrado en la base de datos.') }
+    catch (error) { setNotice(apiMessage(error)) }
+    finally { setBusy(false) }
+  }
 
   return (
     <>
-      <PageTitle
-        title="Corte de caja"
-        subtitle="Resumen de movimientos para el corte de turno."
-        action={
-          <Button onClick={() => window.print()}>
-            <Download size={17} />
-            Imprimir corte
-          </Button>
-        }
-      />
+      <PageTitle title="Corte de caja" subtitle="Apertura, movimientos y cierre guardados en PostgreSQL."
+        action={<Button onClick={() => window.print()}><Download size={17} />Imprimir corte</Button>} />
+      {(ordersError || cutError) && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{ordersError || cutError}</p>}
+      {notice && <p role="status" className="mb-4 rounded-xl bg-blue-50 p-3 text-sm text-blue-800">{notice}</p>}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      {cut ? (
+        <>
+          <Card className="mb-4 flex flex-wrap items-center justify-between gap-3 p-5">
+            <div><p className="text-sm text-slate-500">Corte abierto #{cut.id}</p><p className="font-semibold">Apertura: {new Date(cut.openedAt).toLocaleString('es-MX')}</p></div>
+            <span className="rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">En curso</span>
+          </Card>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <Card className="p-5"><p className="text-sm text-slate-500">Fondo inicial</p><p className="mt-3 text-2xl font-bold">{money(cut.fondoInicial)}</p></Card>
+            <Card className="p-5"><p className="text-sm text-slate-500">Efectivo</p><p className="mt-3 text-2xl font-bold">{money(cut.totalEfectivo)}</p></Card>
+            <Card className="p-5"><p className="text-sm text-slate-500">Tarjeta y transferencia</p><p className="mt-3 text-2xl font-bold">{money(cut.totalTarjeta + cut.totalTransferencia)}</p></Card>
+            <Card className="p-5"><p className="text-sm text-slate-500">Efectivo esperado</p><p className="mt-3 text-2xl font-bold">{money(cut.efectivoEsperado)}</p></Card>
+          </div>
+          <Card className="mt-6 p-5">
+            <h2 className="font-bold">Cerrar corte</h2>
+            <div className="mt-4 flex flex-wrap items-end gap-3">
+              <div className="min-w-56 flex-1"><label htmlFor="cash-counted" className="text-sm text-slate-500">Efectivo contado</label><input id="cash-counted" type="number" min="0" step="0.01" className="mt-2 w-full rounded-xl border p-3" value={counted} onChange={event => setCounted(event.target.value)} /></div>
+              <Button onClick={finishCut} disabled={busy || loading}>{busy ? 'Guardando...' : 'Cerrar y guardar corte'}</Button>
+            </div>
+          </Card>
+        </>
+      ) : (
         <Card className="p-5">
-          <label htmlFor="cash-opening" className="text-sm text-slate-500">Fondo inicial</label>
-
-          <input
-            id="cash-opening"
-            type="number"
-            className="mt-3 w-full rounded-xl border p-3 text-2xl font-bold"
-            value={opening}
-            onChange={(e) => setOpening(e.target.value)}
-          />
+          <h2 className="font-bold">Abrir turno</h2>
+          <p className="mt-1 text-sm text-slate-500">Elige el fondo inicial para iniciar un corte en la base de datos.</p>
+          <div className="mt-4 flex flex-wrap items-end gap-3">
+            <div className="min-w-56 flex-1"><label htmlFor="cash-opening" className="text-sm text-slate-500">Fondo inicial</label><input id="cash-opening" type="number" min="0" step="0.01" className="mt-2 w-full rounded-xl border p-3 text-xl font-bold" value={opening} onChange={event => setOpening(event.target.value)} /></div>
+            <Button onClick={startCut} disabled={busy || loading}>{busy ? 'Guardando...' : 'Abrir corte'}</Button>
+          </div>
         </Card>
-
-        <Card className="p-5">
-          <p className="text-sm text-slate-500">
-            Ventas marcadas como pagadas
-          </p>
-
-          <p className="mt-3 text-2xl font-bold text-emerald-700">
-            {money(total)}
-          </p>
-        </Card>
-
-        <Card className="p-5">
-          <p className="text-sm text-slate-500">
-            Efectivo esperado (fondo + ventas pagadas)
-          </p>
-
-          <p className="mt-3 text-2xl font-bold">
-            {money(Number(opening || 0) + total)}
-          </p>
-        </Card>
-      </div>
+      )}
 
       <Card className="mt-6 p-5">
-        <h2 className="font-bold">Resumen del turno</h2>
-
+        <h2 className="font-bold">Resumen de pedidos</h2>
         <div className="mt-4 grid gap-3 sm:grid-cols-3">
-          <div className="rounded-xl bg-slate-50 p-4">
-            <p className="text-sm text-slate-500">Pedidos totales</p>
-            <p className="mt-2 text-xl font-bold">
-              {orders.length}
-            </p>
-          </div>
-
-          <div className="rounded-xl bg-slate-50 p-4">
-            <p className="text-sm text-slate-500">
-              Pedidos pendientes
-            </p>
-            <p className="mt-2 text-xl font-bold">
-              {pending.length}
-            </p>
-          </div>
-
-          <div className="rounded-xl bg-slate-50 p-4">
-            <p className="text-sm text-slate-500">
-              Pagos registrados
-            </p>
-            <p className="mt-2 text-xl font-bold">
-              {paid.length}
-            </p>
-          </div>
+          <div className="rounded-xl bg-slate-50 p-4"><p className="text-sm text-slate-500">Pedidos totales</p><p className="mt-2 text-xl font-bold">{orders.length}</p></div>
+          <div className="rounded-xl bg-slate-50 p-4"><p className="text-sm text-slate-500">Pedidos pendientes</p><p className="mt-2 text-xl font-bold">{pending.length}</p></div>
+          <div className="rounded-xl bg-slate-50 p-4"><p className="text-sm text-slate-500">Pagos registrados</p><p className="mt-2 text-xl font-bold">{paid.length}</p></div>
         </div>
-
-        <p className="mt-4 text-xs text-amber-700">
-          Demostración: este corte usa pedidos guardados en el navegador,
-          no movimientos contables verificados.
-        </p>
       </Card>
     </>
-  );
+  )
 }
 
 export function ReportsPage() {
-  const orders =
-    (JSON.parse(localStorage.getItem("dukes-orders") || "null") as
-      | Order[]
-      | null) || initialOrders;
+  const { data: orders, error } = useApiResource(getOrders, [] as OrderRecord[]);
 
   const rows = [
     {
@@ -853,7 +731,7 @@ export function ReportsPage() {
       value: money(
         orders.reduce(
           (s, o) =>
-            s + o.items.reduce((t, i) => t + i.qty * i.price, 0),
+            s + o.total,
           0,
         ),
       ),
@@ -867,6 +745,7 @@ export function ReportsPage() {
         subtitle="Indicadores generales de operación (datos de muestra)."
       />
 
+      {error && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
       <div className="grid gap-4 sm:grid-cols-2">
         {rows.map((r) => (
           <Card key={r.label} className="p-6">
@@ -887,7 +766,7 @@ export function ReportsPage() {
             >
               <div>
                 <p className="font-semibold">
-                  Pedido #{o.id} · Para llevar
+                  Pedido #{o.id} · {o.tipoPedido}
                 </p>
 
                 <p className="text-xs text-slate-500">

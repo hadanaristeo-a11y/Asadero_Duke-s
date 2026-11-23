@@ -15,32 +15,16 @@ import {
   StatusBadge,
 } from "../../components/ui/Primitives";
 
-import {
-  initialOrders,
-  type Order,
-} from "../../data/demo";
-
-// ======================================================
-// LEER Y GUARDAR PEDIDOS
-// ======================================================
-
-function readOrders(): Order[] {
-  return (
-    JSON.parse(localStorage.getItem("dukes-orders") || "null") ||
-    initialOrders
-  );
-}
-
-function saveOrders(orders: Order[]) {
-  localStorage.setItem("dukes-orders", JSON.stringify(orders));
-}
+import { getOrders, updateOrderStatus, type OrderRecord, type OrderStatus } from "../../api/order.api";
+import { useApiResource } from "../../hooks/useApiResource";
+import { apiMessage } from "../../api/client";
 
 // ======================================================
 // PANEL PRINCIPAL DE COCINA
 // ======================================================
 
 export function KitchenDashboard() {
-  const orders = readOrders();
+  const { data: orders, error } = useApiResource(getOrders, [] as OrderRecord[]);
 
   return (
     <>
@@ -50,10 +34,11 @@ export function KitchenDashboard() {
         action={
           <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
             <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            Modo demostración
+            Conectado a la base de datos
           </span>
         }
       />
+      {error && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
@@ -148,7 +133,7 @@ export function KitchenDashboard() {
                         </p>
 
                         <p className="text-xs text-slate-500">
-                          Pedido para llevar · {o.createdAt}
+                          {o.tipoPedido}{o.numeroMesa ? ` · Mesa ${o.numeroMesa}` : ""} · {o.createdAt}
                         </p>
                       </div>
 
@@ -199,27 +184,21 @@ export function KitchenDashboard() {
 // ======================================================
 
 export function KitchenOrdersPage() {
-  const [orders, setOrders] = useState<Order[]>(readOrders);
+  const { data: orders, setData: setOrders, loading, error, reload } = useApiResource(getOrders, [] as OrderRecord[]);
   const [notice, setNotice] = useState("");
 
-  const update = (
-    id: number,
-    status: Order["status"],
-  ) => {
-    const next = orders.map((o) =>
-      o.id === id ? { ...o, status } : o,
-    );
-
-    setOrders(next);
-    saveOrders(next);
-
-    setNotice(`Pedido #${id}: ${status}.`);
+  const update = async (id: number, status: OrderStatus) => {
+    try {
+      await updateOrderStatus(id, status);
+      setOrders(old => old.map(o => o.id === id ? {...o,status} : o));
+      setNotice(`Pedido #${id}: ${status}.`);
+    } catch (error) { setNotice(apiMessage(error)); }
   };
 
   const stages: {
     title: string;
-    status: Order["status"];
-    next?: Order["status"];
+    status: OrderStatus;
+    next?: OrderStatus;
     color: string;
     button?: string;
   }[] = [
@@ -255,10 +234,7 @@ export function KitchenOrdersPage() {
           <Button
             variant="secondary"
             onClick={() => {
-              setOrders(readOrders());
-              setNotice(
-                "Lista actualizada desde los datos del navegador.",
-              );
+              reload(); setNotice("Pedidos actualizados.");
             }}
           >
             <RefreshCw size={16} />
@@ -266,6 +242,7 @@ export function KitchenOrdersPage() {
           </Button>
         }
       />
+      {(error || loading) && <p role={error ? "alert" : "status"} className={`mb-4 rounded-xl p-3 text-sm ${error ? "bg-red-50 text-red-700" : "text-slate-500"}`}>{error || "Cargando pedidos..."}</p>}
 
       {notice && (
         <p role="status" aria-live="polite" className="mb-4 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">
@@ -307,7 +284,7 @@ export function KitchenOrdersPage() {
                         </h3>
 
                         <p className="mt-1 text-sm text-slate-500">
-                          Pedido para llevar · {o.createdAt}
+                          {o.tipoPedido}{o.numeroMesa ? ` · Mesa ${o.numeroMesa}` : ""} · {o.createdAt}
                         </p>
                       </div>
 

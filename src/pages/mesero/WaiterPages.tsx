@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 
 import {
   Plus,
@@ -21,54 +21,20 @@ import {
   StatusBadge,
 } from "../../components/ui/Primitives";
 
-import {
-  initialOrders,
-  money,
-  products,
-  type Order,
-  type OrderItem,
-} from "../../data/demo";
+import { money, type OrderItem } from "../../data/demo";
 
-import { useAuth } from "../../context/AuthContext";
-
-// ======================================================
-// LEER Y GUARDAR PEDIDOS
-// ======================================================
-
-function readOrders(): Order[] {
-  try {
-    const savedOrders = localStorage.getItem("dukes-orders");
-
-    if (savedOrders) {
-      return JSON.parse(savedOrders) as Order[];
-    }
-
-    return initialOrders;
-  } catch (error) {
-    console.error("Error al leer los pedidos:", error);
-    return initialOrders;
-  }
-}
-
-function writeOrders(orders: Order[]) {
-  localStorage.setItem("dukes-orders", JSON.stringify(orders));
-}
+import { getProducts } from "../../api/productos.api";
+import { createOrder, getOrders, payOrder, type OrderRecord } from "../../api/order.api";
+import { useApiResource } from "../../hooks/useApiResource";
+import { apiMessage } from "../../api/client";
 
 // ======================================================
 // PANEL PRINCIPAL DEL MESERO
 // ======================================================
 
 export function WaiterDashboard() {
-  const [orders] = useState<Order[]>(readOrders);
-
-  const currentUser = JSON.parse(
-    localStorage.getItem("dukes-user") || "{}",
-  );
-
-  const mine = orders.filter(
-    (order) =>
-      order.waiter === (currentUser.name || "Carlos Ramírez"),
-  );
+  const { data: orders, error } = useApiResource(getOrders, [] as OrderRecord[]);
+  const mine = orders;
 
   const pedidosEnCurso = orders.filter(
     (order) =>
@@ -86,6 +52,7 @@ export function WaiterDashboard() {
         title="¡Hola, bienvenido!"
         subtitle="Aquí puedes gestionar tus pedidos para llevar."
       />
+      {error && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
 
       <div className="grid gap-4 sm:grid-cols-2">
         {[
@@ -144,7 +111,7 @@ export function WaiterDashboard() {
                     </p>
 
                     <p className="text-xs text-slate-500">
-                      Para llevar · {order.createdAt}
+                      {order.tipoPedido} · {order.createdAt}
                     </p>
                   </div>
 
@@ -174,8 +141,8 @@ export function NewOrderPage() {
   const [search, setSearch] = useState("");
   const [note, setNote] = useState("");
   const [notice, setNotice] = useState("");
-
-  const { user } = useAuth();
+  const [sending, setSending] = useState(false);
+  const { data: products, loading, error } = useApiResource(getProducts, []);
 
   const categories = [
     "Todos",
@@ -246,34 +213,18 @@ export function NewOrderPage() {
 
   // REGISTRAR PEDIDO PARA LLEVAR
 
-  const submit = () => {
+  const submit = async () => {
     if (cart.length === 0) {
       setNotice("Agrega al menos un producto.");
       return;
     }
 
-    const orders = readOrders();
-
-    const next: Order = {
-      id: Math.max(1024, ...orders.map((order) => order.id)) + 1,
-      table: "Para llevar",
-      waiter: user?.name || "Carlos Ramírez",
-      status: "Pendiente",
-      createdAt: new Date().toLocaleTimeString("es-MX", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-      items: [...cart],
-      note: note.trim(),
-      paid: false,
-    };
-
-    writeOrders([next, ...orders]);
-
-    setCart([]);
-    setNote("");
-
-    setNotice(`Pedido #${next.id} enviado a cocina.`);
+    setSending(true);
+    try {
+      const created = await createOrder({ tipoPedido:"Para llevar", observaciones:note.trim(), items:cart.map(item => ({ productId:item.productId, quantity:item.qty })) });
+      setCart([]); setNote(""); setNotice(`Pedido #${created.id} enviado a cocina.`);
+    } catch (error) { setNotice(apiMessage(error)); }
+    finally { setSending(false); }
   };
 
   return (
@@ -282,6 +233,8 @@ export function NewOrderPage() {
         title="Nuevo pedido"
         subtitle="Selecciona los productos para preparar un pedido para llevar."
       />
+      {error && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+      {loading && <p className="mb-4 text-sm text-slate-500">Cargando catálogo...</p>}
 
       {notice && (
         <div role="status" aria-live="polite" className="mb-4 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">
@@ -325,7 +278,7 @@ export function NewOrderPage() {
                 className="overflow-hidden"
               >
                 <img
-                  src={product.image}
+                  src={product.imageUrl || "https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=700&q=80"}
                   alt={product.name}
                   className="h-36 w-full object-cover"
                 />
@@ -482,9 +435,10 @@ export function NewOrderPage() {
           <Button
             className="mt-5 w-full py-3"
             onClick={submit}
+            disabled={sending}
           >
             <Send size={17} />
-            Enviar a cocina
+            {sending ? "Enviando..." : "Enviar a cocina"}
           </Button>
 
           <Button
@@ -509,7 +463,7 @@ export function NewOrderPage() {
 // ======================================================
 
 export function MyOrdersPage() {
-  const [orders] = useState<Order[]>(readOrders);
+  const { data: orders, error } = useApiResource(getOrders, [] as OrderRecord[]);
   const [search, setSearch] = useState("");
 
   const filtered = orders.filter((order) =>
@@ -524,6 +478,7 @@ export function MyOrdersPage() {
         title="Mis pedidos"
         subtitle="Consulta el estado de los pedidos para llevar."
       />
+      {error && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
 
       <div className="mb-4">
         <SearchBox
@@ -539,7 +494,7 @@ export function MyOrdersPage() {
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs text-slate-500">
-                  Pedido para llevar
+                  {order.tipoPedido}
                 </p>
 
                 <h2 className="text-xl font-bold">
@@ -586,13 +541,7 @@ export function MyOrdersPage() {
               </span>
 
               <span className="text-lg font-bold">
-                {money(
-                  order.items.reduce(
-                    (sum, item) =>
-                      sum + item.qty * item.price,
-                    0,
-                  ),
-                )}
+                  {money(order.total)}
               </span>
             </div>
           </Card>
@@ -613,44 +562,34 @@ export function MyOrdersPage() {
 // ======================================================
 
 export function ChargeOrderPage() {
-  const [orders, setOrders] = useState<Order[]>(readOrders);
-
-  const [selected, setSelected] = useState(
-    String(
-      orders.find(
-        (order) =>
-          order.status !== "Pagado" &&
-          order.status !== "Entregado",
-      )?.id || "",
-    ),
-  );
+  const { data: orders, setData: setOrders, loading, error } = useApiResource(getOrders, [] as OrderRecord[]);
+  const [selected, setSelected] = useState("");
 
   const [method, setMethod] = useState("Efectivo");
   const [received, setReceived] = useState("");
   const [notice, setNotice] = useState("");
 
-  const order = orders.find(
-    (item) => String(item.id) === selected,
-  );
+  const resolvedSelected = selected || String(orders.find(order => order.status === "Entregado")?.id || "");
+  const order = orders.find(item => String(item.id) === resolvedSelected);
 
   const total = order
     ? order.items.reduce(
         (sum, item) => sum + item.qty * item.price,
         0,
       )
-    : 0;
+      : 0;
 
   const change = Number(received || 0) - total;
 
   // REGISTRAR EL COBRO
 
-  const pay = () => {
+  const pay = async () => {
     if (!order) {
       setNotice("Selecciona un pedido.");
       return;
     }
 
-    if (order.status === "Pagado" || order.paid) {
+    if (order.status === "Pagado") {
       setNotice("Este pedido ya está pagado.");
       return;
     }
@@ -663,22 +602,12 @@ export function ChargeOrderPage() {
       return;
     }
 
-    const next = orders.map((item) =>
-      item.id === order.id
-        ? {
-            ...item,
-            status: "Pagado" as const,
-            paid: true,
-          }
-        : item,
-    );
-
-    setOrders(next);
-    writeOrders(next);
-
-    setNotice(
-      `Pago del pedido #${order.id} registrado en modo demostración.`,
-    );
+    try {
+      await payOrder(order.id, { metodoPago:method as "Efectivo"|"Tarjeta"|"Transferencia", ...(method === "Efectivo" ? {montoRecibido:Number(received)} : {}) });
+      setOrders(old => old.map(item => item.id === order.id ? {...item,status:"Pagado"} : item));
+      setSelected("");
+      setNotice(`Pago del pedido #${order.id} registrado correctamente.`);
+    } catch (error) { setNotice(apiMessage(error)); }
   };
 
   return (
@@ -687,6 +616,8 @@ export function ChargeOrderPage() {
         title="Cobrar pedido"
         subtitle="Selecciona un pedido para llevar y registra el método de pago."
       />
+      {error && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+      {loading && <p className="mb-4 text-sm text-slate-500">Cargando pedidos...</p>}
 
       <div className="grid items-start gap-6 xl:grid-cols-[1.1fr_.9fr]">
         <Card className="p-5">
@@ -697,7 +628,7 @@ export function ChargeOrderPage() {
           <label htmlFor="order-to-charge" className="sr-only">Pedido a cobrar</label>
           <select
             id="order-to-charge"
-            value={selected}
+            value={resolvedSelected}
             onChange={(event) => {
               setSelected(event.target.value);
               setNotice("");
@@ -710,22 +641,10 @@ export function ChargeOrderPage() {
             </option>
 
             {orders
-              .filter(
-                (item) =>
-                  item.status !== "Pagado" &&
-                  item.status !== "Entregado" &&
-                  !item.paid,
-              )
+              .filter(item => item.status === "Entregado")
               .map((item) => (
                 <option key={item.id} value={item.id}>
-                  Pedido #{item.id} · Para llevar ·{" "}
-                  {money(
-                    item.items.reduce(
-                      (sum, product) =>
-                        sum + product.qty * product.price,
-                      0,
-                    ),
-                  )}
+                  Pedido #{item.id} · {item.tipoPedido} · {money(item.total)}
                 </option>
               ))}
           </select>
@@ -753,7 +672,7 @@ export function ChargeOrderPage() {
                 <span>Total a pagar</span>
 
                 <span className="text-red-800">
-                  {money(total)}
+              {money(total)}
                 </span>
               </div>
             </>
@@ -858,7 +777,7 @@ export function ChargeOrderPage() {
           </Button>
 
           <p className="mt-3 text-xs text-slate-400">
-            Solo registra el estado en el navegador; no procesa pagos bancarios.
+            El registro se guarda en la base de datos; no procesa pagos bancarios.
           </p>
         </Card>
       </div>

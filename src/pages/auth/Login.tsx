@@ -1,6 +1,4 @@
-
-import { useState, type FormEvent } from "react";
-
+﻿import { useState, type FormEvent } from "react";
 import {
   ArrowLeft,
   Eye,
@@ -9,10 +7,9 @@ import {
   LockKeyhole,
   UserRound,
 } from "lucide-react";
-
 import { Link, useNavigate, useParams } from "react-router-dom";
-
-type Role = "admin" | "mesero" | "cocina";
+import { useAuth, type Role } from "../../context/AuthContext";
+import { apiMessage, isDemoMode } from "../../api/client";
 
 const roleInfo: Record<
   Role,
@@ -37,26 +34,36 @@ const roleInfo: Record<
 
 export default function Login() {
   const { role: param } = useParams();
-
   const role = (param || "admin") as Role;
   const info = roleInfo[role] || roleInfo.admin;
 
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(isDemoMode ? "admin" : "");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const { login } = useAuth();
   const navigate = useNavigate();
 
-  // INICIAR SESIÓN SIN CONEXIÓN AL BACKEND
-  const submit = (e: FormEvent<HTMLFormElement>) => {
+  const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
-    setLoading(true);
+    if (!username.trim() || (!isDemoMode && !password.trim())) {
+      setError(isDemoMode ? "Ingresa un usuario para la vista previa." : "Ingresa tu usuario y contraseña.");
+      return;
+    }
 
-    setTimeout(() => {
-      navigate(info.home, { replace: true });
-    }, 300);
+    setError("");
+    setLoading(true);
+    try {
+      await login(role, username, password);
+      navigate(info.home);
+    } catch (error) {
+      setError(apiMessage(error));
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -71,6 +78,7 @@ export default function Login() {
           className="absolute inset-0 h-full w-full object-cover"
         />
 
+        {/* OSCURECER IMAGEN */}
         <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/30 to-black/90" />
 
         {/* MARCA */}
@@ -159,7 +167,7 @@ export default function Login() {
             </h2>
 
             <p className="mt-4 text-lg leading-7 text-slate-500">
-              Ingresa tus datos para acceder al sistema.
+              Inicia sesión para acceder al sistema.
             </p>
 
             <div className="mt-6 flex items-center gap-3">
@@ -174,29 +182,30 @@ export default function Login() {
           {/* FORMULARIO */}
           <form onSubmit={submit} className="space-y-7">
 
-            {/* NOMBRE O USUARIO */}
+            {isDemoMode && <p role="status" className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">Vista previa local: usa el usuario admin y deja la contraseña vacía. Los cambios son de demostración.</p>}
+
+            {/* USUARIO */}
             <div>
               <label
                 htmlFor="username"
                 className="mb-3 block text-base font-semibold text-slate-700"
               >
-                Nombre de usuario
+                Usuario
               </label>
 
               <div className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-5 transition focus-within:border-red-500 focus-within:bg-white focus-within:ring-4 focus-within:ring-red-100">
-
-                <UserRound
-                  size={23}
-                  className="shrink-0 text-slate-400"
-                />
+                <UserRound size={23} className="shrink-0 text-slate-400" />
 
                 <input
                   id="username"
                   type="text"
                   value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  onChange={(e) => {
+                    setUsername(e.target.value);
+                    setError("");
+                  }}
                   className="w-full bg-transparent text-base text-slate-900 outline-none placeholder:text-slate-400"
-                  placeholder="Ingresa tu nombre"
+                  placeholder="Ingresa tu usuario"
                   autoComplete="username"
                 />
               </div>
@@ -212,17 +221,16 @@ export default function Login() {
               </label>
 
               <div className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-5 transition focus-within:border-red-500 focus-within:bg-white focus-within:ring-4 focus-within:ring-red-100">
-
-                <LockKeyhole
-                  size={23}
-                  className="shrink-0 text-slate-400"
-                />
+                <LockKeyhole size={23} className="shrink-0 text-slate-400" />
 
                 <input
                   id="password"
                   type={show ? "text" : "password"}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setError("");
+                  }}
                   className="w-full bg-transparent text-base text-slate-900 outline-none placeholder:text-slate-400"
                   placeholder="Ingresa tu contraseña"
                   autoComplete="current-password"
@@ -236,24 +244,29 @@ export default function Login() {
                     show ? "Ocultar contraseña" : "Mostrar contraseña"
                   }
                 >
-                  {show ? (
-                    <EyeOff size={23} />
-                  ) : (
-                    <Eye size={23} />
-                  )}
+                  {show ? <EyeOff size={23} /> : <Eye size={23} />}
                 </button>
               </div>
             </div>
+
+            {/* ERROR */}
+            {error && (
+              <p
+                role="alert"
+                className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+              >
+                {error}
+              </p>
+            )}
 
             {/* BOTÓN */}
             <button
               type="submit"
               disabled={loading}
-              className={`w-full rounded-2xl py-5 text-lg font-bold text-white shadow-lg transition duration-200 hover:-translate-y-0.5 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-60 ${info.color}`}
+              className={`w-full rounded-2xl py-5 text-lg font-bold text-white shadow-lg transition duration-200 hover:-translate-y-0.5 hover:shadow-xl ${info.color}`}
             >
-              {loading ? "Ingresando..." : "Iniciar sesión"}
+              {loading ? "Conectando..." : "Iniciar sesión"}
             </button>
-
           </form>
 
           {/* PIE */}
@@ -262,7 +275,6 @@ export default function Login() {
               © {new Date().getFullYear()} Asadero Duke's
             </p>
           </div>
-
         </div>
       </section>
     </main>

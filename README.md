@@ -1,9 +1,9 @@
-# Asadero Duke's — Sistema de gestión de pedidos (prototipo frontend)
+﻿# Asadero Duke's — Sistema de gestión de pedidos (prototipo frontend)
 
 > **Equipo 5:** Ramírez Fuentes Valeria Del Carmen - Hernández García Adán Aristeo - González Flores Ricardo - Ferraez Peréz Angela Yesmin_
 > **Asignatura:** Aplicaciones Web · Unidad 2 Frontend · Actividad Sumativa 2 (LITIID41)
 
-Prototipo frontend navegable y responsivo, con datos ficticios y estado local. **No** usa backend, API ni base de datos; los datos de demostración se guardan solo en el `localStorage` del navegador.
+Aplicación React para gestionar pedidos. El administrador consume la API del backend Express y PostgreSQL; mesero y cocina usan las mismas rutas de pedidos. Consulta [la guía del backend](server/README.md) para configurar la base.
 
 ## Problema
 En un asadero con venta de pedidos para llevar, la comunicación entre quien toma el pedido, la cocina y la caja suele hacerse de forma verbal o en notas de papel. Esto puede provocar pedidos que se pierden o se preparan en desorden, dudas sobre el estado de cada pedido, errores al calcular el total o el cambio, y un corte de caja difícil de cuadrar al final del día.
@@ -92,7 +92,7 @@ flowchart LR
 | Cobrar pedido | ![](docs/capturas/cobrar-375.png) | ![](docs/capturas/cobrar-768.png) | ![](docs/capturas/cobrar-1280.png) |
 
 ## Tecnologías
-React 19, TypeScript, Vite, Tailwind CSS 4, React Router, lucide-react.
+React 19, TypeScript, Vite, Tailwind CSS 4, Express, PostgreSQL y React Router.
 
 ## Estructura
 ```
@@ -108,9 +108,10 @@ src/
 
 ## Instalación y ejecución
 ```bash
-git clone <https://github.com/angieyesmin/Asadero_Duke-s.git>
-cd Asadero_Duke-s-main
 npm install
+# Configura PostgreSQL siguiendo server/README.md
+npm run server:dev
+# En otra terminal
 npm run dev
 ```
-Para compilar: `npm run build`. Acceso de demostración: cualquier usuario y contraseña no vacíos.
+Para compilar el frontend: `npm run build`. Para compilar el backend: `npm run backend:build`.

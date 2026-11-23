@@ -22,6 +22,8 @@ import {
 } from "lucide-react";
 
 import { useAuth, type Role } from "../../context/AuthContext";
+import { getOrders, type OrderRecord } from "../../api/order.api";
+import { isDemoMode } from "../../api/client";
 
 // ======================================================
 // TIPOS DE NOTIFICACIONES
@@ -92,28 +94,11 @@ const roleLabels: Record<Role, string> = {
 // LEER PEDIDOS GUARDADOS
 // ======================================================
 
-function readOrders(): any[] {
-  try {
-    const saved = localStorage.getItem("dukes-orders");
-
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      return Array.isArray(parsed) ? parsed : [];
-    }
-
-    return [];
-  } catch {
-    return [];
-  }
-}
-
 // ======================================================
 // GENERAR NOTIFICACIONES SEGÚN LOS PEDIDOS
 // ======================================================
 
-function getOrderNotifications(): NotificationItem[] {
-  const orders = readOrders();
-
+function getOrderNotifications(orders: OrderRecord[]): NotificationItem[] {
   return orders
     .filter(
       (order) =>
@@ -146,9 +131,7 @@ export function AppShell({
 
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
-  const [notifications, setNotifications] = useState<NotificationItem[]>(
-    getOrderNotifications,
-  );
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
   const [readNotificationIds, setReadNotificationIds] = useState<number[]>(
     () => {
@@ -171,9 +154,11 @@ export function AppShell({
   // ======================================================
 
   useEffect(() => {
-    const updateNotifications = () => {
-      setNotifications(getOrderNotifications());
+    const updateNotifications = async () => {
+      try { setNotifications(getOrderNotifications(await getOrders())); } catch { /* el aviso se actualiza cuando vuelva la conexión */ }
     };
+
+    void updateNotifications();
 
     // Comprobar cambios periódicamente.
     const interval = window.setInterval(updateNotifications, 3000);
@@ -583,7 +568,10 @@ export function AppShell({
 
         {/* CONTENIDO DE CADA PÁGINA */}
 
-        <main className="p-4 sm:p-7">{children}</main>
+        <main className="p-4 sm:p-7">
+          {isDemoMode && <p className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">Vista previa local: se muestran datos ficticios y no se guardan en PostgreSQL.</p>}
+          {children}
+        </main>
 
         {/* PIE DE PÁGINA */}
 
