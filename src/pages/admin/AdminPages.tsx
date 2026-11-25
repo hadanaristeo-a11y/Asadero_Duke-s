@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Plus,
   Download,
@@ -196,7 +197,8 @@ export function AdminDashboard() {
 
 export function ProductsPage() {
   const { data: remoteProducts, setData: setRemoteProducts, loading, error, reload } = useApiResource(getProducts, [] as ProductRecord[]);
-  const { data: categories } = useApiResource(getCategories, []);
+  const { data: categories, loading: categoriesLoading, error: categoriesError } = useApiResource(getCategories, []);
+  const activeCategories = categories.filter(category => category.active);
   const items: Product[] = remoteProducts.map(p => ({ id:p.id,name:p.name,category:p.category,price:Number(p.price),image:p.imageUrl || "https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=700&q=80",active:p.active }));
 
   const [search, setSearch] = useState("");
@@ -207,9 +209,13 @@ export function ProductsPage() {
   const [notice, setNotice] = useState("");
 
   const save = async () => {
-    if (!name.trim() || Number(price) < 0 || !(categoryId || categories[0]?.id)) return;
+    const productPrice = Number(price);
+    const selectedCategory = categoryId || activeCategories[0]?.id;
+    if (!name.trim()) { setNotice("Escribe el nombre del producto."); return; }
+    if (!Number.isFinite(productPrice) || productPrice <= 0) { setNotice("Escribe un precio mayor que cero."); return; }
+    if (!selectedCategory) { setNotice("Primero crea una categoría para poder guardar el producto."); return; }
     try {
-      await createProduct({ name:name.trim(), price:Number(price), categoryId:categoryId || categories[0].id, active:true });
+      await createProduct({ name:name.trim(), price:productPrice, categoryId:selectedCategory, active:true });
       reload(); setName(""); setShowForm(false); setNotice("Producto agregado correctamente.");
     } catch (error) { setNotice(apiMessage(error)); }
   };
@@ -252,6 +258,13 @@ export function ProductsPage() {
         <Card className="mb-5 p-5">
           <h2 className="mb-4 font-bold">Registrar producto</h2>
 
+          {categoriesError && <p role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">No se pudieron cargar las categorías: {categoriesError}</p>}
+          {!categoriesLoading && !categoriesError && activeCategories.length === 0 && (
+            <p className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+              Primero crea una categoría. <Link className="font-semibold underline" to="/admin/categorias">Ir a Categorías</Link>
+            </p>
+          )}
+
           <div className="grid gap-3 md:grid-cols-4">
             <label htmlFor="product-name" className="sr-only">Nombre del producto</label>
             <input
@@ -277,13 +290,15 @@ export function ProductsPage() {
             <select
               id="product-category"
               className="rounded-lg border p-3 text-sm"
-              value={categoryId || categories[0]?.id || ""}
+              value={categoryId || activeCategories[0]?.id || ""}
               onChange={(e) => setCategoryId(Number(e.target.value))}
+              disabled={categoriesLoading || activeCategories.length === 0}
             >
-              {categories.filter(c => c.active).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              <option value="" disabled>Selecciona una categoría</option>
+              {activeCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
 
-            <Button onClick={save}>Guardar producto</Button>
+            <Button onClick={save} disabled={categoriesLoading || activeCategories.length === 0}>Guardar producto</Button>
           </div>
         </Card>
       )}
@@ -340,6 +355,11 @@ export function ProductsPage() {
           </Card>
         ))}
       </div>
+      {!loading && !error && filtered.length === 0 && (
+        <p className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-600">
+          {search.trim() ? `No encontramos productos que coincidan con “${search}”.` : "Todavía no hay productos en la base de datos. Crea una categoría y agrega el primer producto."}
+        </p>
+      )}
     </>
   );
 }
